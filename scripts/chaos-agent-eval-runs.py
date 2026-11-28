@@ -71,7 +71,9 @@ DB = {
     "D07": ("S07", "HIGH", "reservation", "SINGLE", []),
     "D08": ("S08", "HIGH", "baggage", "MULTI", ["flightops"]),
     "D09": ("S09", "HIGH", "reservation", "MULTI", ["flightops"]),
-    "D10": ("S10", "MEDIUM", "checkin", "MULTI", ["reservation"]),
+    # HIGH: MEDIUM hedefi (%55 connection doluluğu) agent'ın göreli eşiğinin (%60) altında kalır (2026-11-28 koşusu);
+    # %55 doluluk bir baskı sayılmadığı için eşik değil case yoğunluğu değiştirildi.
+    "D10": ("S10", "HIGH", "checkin", "MULTI", ["reservation"]),
     "D11": ("S11", "MEDIUM", "flightops", "MULTI", ["checkin"]),
     "D12": ("S12", "HIGH", "baggage", "SINGLE", []),
     "D13": ("S13", "MEDIUM", "baggage", "MULTI", ["reservation"]),

@@ -181,6 +181,19 @@ def exec_sources(cur: dict, base: dict, cfg: dict) -> tuple[list[str], dict[str,
     return [a for a in sorted(sorted(incs), key=incs.get, reverse=True) if incs[a] >= floor], incs
 
 
+def call_sources(cur: dict, base: dict, cfg: dict) -> dict[str, list[int]]:
+    """pg_stat_statements çağrı sayısı (role bazında) belirgin artan uygulamalar → {uygulama: [önceki, incelenen]}
+    (çağrı/dk). Çok sayıda küçük statement exec time'da iz bırakmaz (ölçüm: commit storm'da role başına exec time
+    artışı ~360 ms/dk iken çağrı sayısı 600 → 15.400/dk); böyle yüklerde source çağrı hacminden okunur."""
+    m, out = cfg["mechanisms"], {}
+    for app in cfg["apps"]:
+        calls = _g(cur["apps"].get(app), "db_calls_per_min")
+        before = _g(base["apps"].get(app), "db_calls_per_min") or 0.0
+        if calls and calls >= m["flood_min_calls_per_min"] and calls >= before * m["flood_ratio"]:
+            out[app] = [round(before), round(calls)]
+    return out
+
+
 def db_workload(cur: dict, base: dict, cfg: dict, imp: dict, ev) -> list[dict]:
     """PostgreSQL workload mechanism'leri: deadlock, serialization failure, temp file, write/WAL, update churn,
     read (scan) ve DB_VM memory. Hepsi iki dönemin karşılaştırmasıdır; veri yoksa mechanism üretilmez."""
@@ -190,6 +203,8 @@ def db_workload(cur: dict, base: dict, cfg: dict, imp: dict, ev) -> list[dict]:
     aff = sorted(imp)
     srcs, incs = exec_sources(cur, base, cfg)
     exec_inc = {k: round(v, 1) for k, v in incs.items()}
+    vol = call_sources(cur, base, cfg)
+    by_calls = sorted(sorted(vol), key=lambda a: vol[a][1], reverse=True)
     mb = 1024 * 1024
 
     def rose(key, min_value, ratio=m["db_rate_ratio"]) -> bool:
@@ -292,10 +307,13 @@ def db_workload(cur: dict, base: dict, cfg: dict, imp: dict, ev) -> list[dict]:
         d_cm = (db.get("commits_per_min") or 0) - (bdb.get("commits_per_min") or 0)
         # commit başına birkaç row: yük WAL hacminden çok commit (WAL flush) sayısındadır
         commit_heavy = ins_up and d_cm > 0 and d_ins / d_cm < 5 and rose("commits_per_min", 1, 2.0)
+        # commit storm tek satırlık ucuz statement'lardan oluşur: exec time eşiği aşılmazsa source çağrı hacmidir
+        w_calls = by_calls if (commit_heavy and not srcs) else []
+        w_srcs = srcs or w_calls
         out.append({
             "id": "write_pressure", "title": "PostgreSQL write / WAL pressure",
             "pattern": "commit_heavy" if commit_heavy else "bulk_write",
-            "source_apps": srcs, "affected_apps": aff,
+            "source_apps": w_srcs, "affected_apps": aff,
             "mechanism": ("Çok sayıda küçük transaction ayrı ayrı commit edildi; her commit WAL flush (fsync) ister. "
                           "Commit'ler WAL yazımında sıraya girer, diğer uygulamaların commit latency'si artabilir."
                           if commit_heavy else
@@ -305,9 +323,11 @@ def db_workload(cur: dict, base: dict, cfg: dict, imp: dict, ev) -> list[dict]:
             "commits_per_min": pair("commits_per_min", nd=0),
             "checkpoint_blocks_per_min": pair("pg_checkpoint_blocks_per_min", nd=0),
             "exec_ms_increase_per_min": exec_inc,
+            **({"calls_per_min_by_app": {a: vol[a] for a in w_calls}} if w_calls else {}),
             "signals": (["postgres.tup_inserted"] if ins_up else []) + (["postgres.wal_bytes"] if wal_up else [])
-                       + (["pg_stat_statements exec_time"] if srcs else []),
-            "confidence": _conf(ins_up + wal_up + bool(srcs), bool(imp)),
+                       + (["pg_stat_statements exec_time"] if srcs else [])
+                       + (["pg_stat_statements calls"] if w_calls else []),
+            "confidence": _conf(ins_up + wal_up + bool(w_srcs), bool(imp)),
             "evidence_ids": ev("pg_server", "db_stats", "statements"),
         })
 
@@ -336,12 +356,11 @@ def db_workload(cur: dict, base: dict, cfg: dict, imp: dict, ev) -> list[dict]:
     # h) Query flood: çok sayıda küçük query (write / update yükü zaten bulunduysa ayrıca yazılmaz)
     if not {"write_pressure", "update_churn"} & {x["id"] for x in out}:
         flood = {}
-        for app in cfg["apps"]:
-            c, b = cur["apps"].get(app) or {}, base["apps"].get(app) or {}
-            calls, before, ex = c.get("db_calls_per_min"), b.get("db_calls_per_min") or 0.0, c.get("db_exec_ms_per_min")
-            if (calls and ex is not None and calls >= m["flood_min_calls_per_min"] and calls >= before * m["flood_ratio"]
-                    and ex / calls <= m["flood_max_exec_ms_per_call"]):
-                flood[app] = [round(before), round(calls)]
+        for app in by_calls:
+            c = cur["apps"].get(app) or {}
+            calls, ex = c.get("db_calls_per_min"), c.get("db_exec_ms_per_min")
+            if ex is not None and ex / calls <= m["flood_max_exec_ms_per_call"]:
+                flood[app] = vol[app]
         if flood:
             commits_up = rose("commits_per_min", 1, 2.0)
             who = sorted(sorted(flood), key=lambda a: flood[a][1], reverse=True)

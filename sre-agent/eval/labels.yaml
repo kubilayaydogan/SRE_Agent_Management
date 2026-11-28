@@ -30,6 +30,7 @@ serialization:     {primary: serialization_conflict, sources: [flightops-service
 temp_spill:        {primary: temp_file_pressure, sources: [baggage-service], not_mechanisms: [write_pressure, read_pressure]}
 bulk_insert:       {primary: write_pressure, sources: [checkin-service], not_mechanisms: [update_churn, read_pressure, db_cpu]}
 commit_storm:      {primary: write_pressure, sources: [baggage-service], not_mechanisms: [update_churn]}
+commit_storm_cheap: {primary: write_pressure, sources: [flightops-service, checkin-service], not_mechanisms: [update_churn, query_flood]}
 update_churn:      {primary: update_churn, sources: [reservation-service], not_mechanisms: [write_pressure, idle_in_transaction]}
 vacuum_blocked:    {primary: update_churn, mechanisms: [update_churn, idle_in_transaction],
                     not_mechanisms: [network_path_latency, write_pressure]}

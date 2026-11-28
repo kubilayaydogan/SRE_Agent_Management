@@ -75,8 +75,8 @@ public class ChaosWorkloads {
     private static final int CHURN_ROWS = 50_000;
     /** Advisory lock anahtar sınıfı: iş kodunun kullanabileceği anahtarlarla çakışmaz. */
     private static final int ADVISORY_CLASS = 424_242;
-    private static final java.util.regex.Pattern WORKERS_LAUNCHED =
-            java.util.regex.Pattern.compile("\"Workers Launched\":\\s*(\\d+)");
+    private static final java.util.regex.Pattern WORKERS_PLANNED =
+            java.util.regex.Pattern.compile("\"Workers Planned\":\\s*(\\d+)");
 
     public ChaosWorkloads(DataSource ds, ChaosLabProperties props, Environment env) {
         this.ds = ds;
@@ -647,22 +647,30 @@ public class ChaosWorkloads {
                     st.execute("SET LOCAL parallel_setup_cost = 0");
                     st.execute("SET LOCAL parallel_tuple_cost = 0");
                     st.execute("SET LOCAL min_parallel_table_scan_size = 0");
+                    String sql = "SELECT count(*), max(md5(payload)) FROM chaos.synthetic_data WHERE k % 100 < " + pct;
                     long t0 = System.nanoTime();
-                    int launched = 0;
-                    // k üzerinde indeks yok → parallel seq scan. EXPLAIN ANALYZE sorguyu GERÇEKTEN çalıştırır ve kaç
-                    // parallel worker'ın başlatıldığını bildirir (havuz doluysa istenenden az olur).
-                    try (ResultSet rs = st.executeQuery(SqlTag.labTag("chaos-parallel",
-                            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, FORMAT JSON) "
-                                    + "SELECT count(*), max(md5(payload)) FROM chaos.synthetic_data WHERE k % 100 < " + pct))) {
+                    int planned = 0;
+                    // k üzerinde indeks yok → parallel seq scan. Plan, ANALYZE'sız EXPLAIN ile okunur (query çalışmaz);
+                    // asıl query düz SELECT olarak gönderilir. EXPLAIN ANALYZE utility statement'tır: onunla
+                    // çalıştırılan query pg_stat_statements'a yazılmaz (track_utility = off) ve yük, gerçek bir
+                    // uygulamanın rapor query'sinden farklı olarak statement istatistiklerinde görünmez
+                    // (2026-11-28 koşusunda görüldü). Havuz doluysa başlatılan worker sayısı planlanandan az olabilir.
+                    try (ResultSet rs = st.executeQuery("EXPLAIN (COSTS OFF, FORMAT JSON) " + sql)) {
                         if (rs.next()) {
-                            var m = WORKERS_LAUNCHED.matcher(rs.getString(1));
+                            var m = WORKERS_PLANNED.matcher(rs.getString(1));
                             if (m.find()) {
-                                launched = Integer.parseInt(m.group(1));
+                                planned = Integer.parseInt(m.group(1));
                             }
                         }
                     }
+                    long rows = 0;
+                    try (ResultSet rs = st.executeQuery(SqlTag.labTag("chaos-parallel", sql))) {
+                        if (rs.next()) {
+                            rows = rs.getLong(1);
+                        }
+                    }
                     c.commit();
-                    return result("requestedWorkers", w, "launchedWorkers", launched, "scanPct", pct,
+                    return result("requestedWorkers", w, "plannedWorkers", planned, "scanPct", pct, "rows", rows,
                             "ms", (System.nanoTime() - t0) / 1_000_000);
                 } catch (SQLException e) {
                     c.rollback();

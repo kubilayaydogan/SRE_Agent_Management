@@ -74,6 +74,20 @@ def test_write_pressure_patterns_and_details():
     assert mech(a, "write_pressure")["pattern"] == "commit_heavy"
 
 
+def test_commit_storm_source_falls_back_to_call_volume():
+    _, _, a = run("commit_storm")                                      # exec time yeterli: çağrı hacmine bakılmaz
+    m = mech(a, "write_pressure")
+    assert m["source_apps"] == ["baggage-service"] and "calls_per_min_by_app" not in m
+    _, _, a = run("commit_storm_cheap")                                # exec time eşiğin altında
+    m = mech(a, "write_pressure")
+    assert m["pattern"] == "commit_heavy" and m["source_apps"] == ["flightops-service", "checkin-service"]
+    assert m["calls_per_min_by_app"] == {"flightops-service": [10, 16000], "checkin-service": [10, 15400]}
+    assert "pg_stat_statements calls" in m["signals"] and "pg_stat_statements exec_time" not in m["signals"]
+    assert "query_flood" not in [x["id"] for x in a["mechanisms"]]
+    _, _, a = run("bulk_insert", )                                     # bulk write'ta çağrı hacmi source sayılmaz
+    assert "calls_per_min_by_app" not in mech(a, "write_pressure")
+
+
 def test_update_churn_reports_vacuum_context():
     _, _, a = run("update_churn")
     m = mech(a, "update_churn")

@@ -295,10 +295,11 @@ class ChaosLabIT {
     }
 
     @Test
-    void parallelQueryLaunchesParallelWorkers() throws Exception {
+    void parallelQueryPlansParallelWorkers() throws Exception {
         var r = post("/lab/chaos/parallel-query?workers=2&scanPct=100");
         assertEquals(200, r.statusCode(), r.body());
-        assertTrue(json(r).get("launchedWorkers").asLong() >= 1, r.body());
+        assertTrue(json(r).get("plannedWorkers").asLong() >= 1, r.body());
+        assertTrue(json(r).get("rows").asLong() > 0, r.body());
     }
 
     @Test

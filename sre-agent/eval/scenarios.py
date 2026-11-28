@@ -80,6 +80,10 @@ SCENARIOS = {
     "bulk_insert": lambda: (NORMAL, _w(pg=_pg(ins=1.0e6, wal=8.0e8, ret=7.0e6), apps={C: {"exec_ms": 20000.0}}), {}),
     "commit_storm": lambda: (NORMAL, _w(pg=_pg(ins=12000.0, wal=4.5e6), dbstats={"cm": 16000.0},
                                         apps={B: {"exec_ms": 9000.0}}), {}),
+    # Canlı ölçüm (2026-11-28, D11): exec time artışı source eşiğinin altında, çağrı sayısı ~25 kat
+    "commit_storm_cheap": lambda: (NORMAL, _w(pg=_pg(ins=24000.0, wal=8.0e6), dbstats={"cm": 32000.0},
+                                              apps={F: {"exec_ms": 460.0, "calls": 16000.0},
+                                                    C: {"exec_ms": 470.0, "calls": 15400.0}}), {}),
     "update_churn": lambda: (NORMAL, _w(pg=_pg(writes=150000.0, wal=8.0e7, autovac_blocks=15000.0, ret=1.3e7),
                                         apps={R: {"exec_ms": 30000.0}}), {}),
     "vacuum_blocked": lambda: (NORMAL, _w(pg=_pg(writes=140000.0, wal=6.0e7),

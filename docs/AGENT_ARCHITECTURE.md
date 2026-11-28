@@ -307,7 +307,7 @@ değiştirilebilir ve değişiklik öncesinde geçmiş veriye karşı önizleneb
 | `deadlock` | Deadlock sayacı ya da PostgreSQL logunda `deadlock detected` satırları |
 | `serialization_conflict` | PostgreSQL logunda `could not serialize access` satırları |
 | `temp_file_pressure` | Temp dosyası yazımı arttı (sort / hash `work_mem`'e sığmıyor) |
-| `write_pressure` | Insert ve WAL hacmi arttı. Alt tür: `bulk_write`, `commit_heavy` |
+| `write_pressure` | Insert ve WAL hacmi arttı. Alt tür: `bulk_write`, `commit_heavy`. `commit_heavy`'de exec time artışı source eşiğinin altında kalırsa source, çağrı sayısı belirgin artan uygulamalardır |
 | `update_churn` | Update hızı arttı; autovacuum aktivitesi ve vacuum'u engelleyebilecek session'lar ayrıca belirtilir |
 | `read_pressure` | Okunan tuple hacmi ya da diskten okunan blok arttı (ör. sequential scan) |
 | `db_memory_pressure` | Veritabanı host'unda memory kullanımı arttı |
